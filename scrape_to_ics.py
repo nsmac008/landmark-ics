@@ -36,7 +36,7 @@ class Event:
         self.desc = (desc or "").strip()
         self.uid = f"{uuid.uuid4()}@landmarktheatre.org"
 
-    def to_ics(self):
+   def to_ics(self):
         dtstamp = datetime.now(tz=tz.UTC).strftime("%Y%m%dT%H%M%SZ")
         dtstart = self.start.astimezone(tz.UTC).strftime("%Y%m%dT%H%M%SZ")
         dtend = self.end.astimezone(tz.UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -46,14 +46,14 @@ class Event:
             f"DTSTAMP:{dtstamp}",
             f"DTSTART:{dtstart}",
             f"DTEND:{dtend}",
-            f"SUMMARY:{escape_ics(self.title)}",
-        ]
-        if self.url:
-            lines.append(f"URL:{escape_ics(self.url)}")
-        if self.desc:
-            lines.append(f"DESCRIPTION:{escape_ics(self.desc)}")
-        lines.append("END:VEVENT")
-        return "\n".join(lines)
+            f"SUMMARY:Landmark: {escape_ics(self.title)}",
+    ]
+    if self.url:
+        lines.append(f"URL:{escape_ics(self.url)}")
+    if self.desc:
+        lines.append(f"DESCRIPTION:{escape_ics(self.desc)}")
+    lines.append("END:VEVENT")
+    return "\n".join(lines)
 
 def escape_ics(text: str) -> str:
     return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
