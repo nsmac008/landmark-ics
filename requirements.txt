@@ -1,1 +1,3 @@
-requests\nbeautifulsoup4\npython-dateutil\n
+requests
+beautifulsoup4
+python-dateutil
