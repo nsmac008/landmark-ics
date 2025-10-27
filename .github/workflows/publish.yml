@@ -23,13 +23,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Generate ICS
+      - name: Generate ICS (Landmark → public/)
         run: |
           python scrape_to_ics.py
-      - name: Upload artifact
+      - name: Verify ICS present
+        run: |
+          ls -lah public
+          test -f public/calendar.ics || (echo "ERROR: public/calendar.ics not found" && exit 1)
+      - name: Upload artifact (public/)
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: public
   deploy:
     needs: build
     runs-on: ubuntu-latest
