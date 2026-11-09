@@ -73,6 +73,98 @@ def deterministic_uid(url, start, title):
     return hashlib.sha1(raw).hexdigest() + "@nsmac008-landmark-feed"
 
 
+def unfold_ical(text):
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out = []
+    for line in lines:
+        if line.startswith((" ", "\t")) and out:
+            out[-1] += line[1:]
+        else:
+            out.append(line)
+    return out
+
+
+def parse_ical_start(line):
+    if ":" not in line:
+        return None
+    head, value = line.split(":", 1)
+    try:
+        if value.endswith("Z"):
+            return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).astimezone(TZ)
+        if "VALUE=DATE" in head:
+            return datetime.strptime(value[:8], "%Y%m%d").replace(tzinfo=TZ)
+        return datetime.strptime(value[:15], "%Y%m%dT%H%M%S").replace(tzinfo=TZ)
+    except Exception:
+        return None
+
+
+def native_event_keys(ical_text):
+    keys = set()
+    block = []
+    in_event = False
+    for line in unfold_ical(ical_text):
+        if line == "BEGIN:VEVENT":
+            in_event = True
+            block = []
+        elif line == "END:VEVENT":
+            title = None
+            start = None
+            for item in block:
+                if item.startswith("SUMMARY:"):
+                    title = item.split(":", 1)[1]
+                    if title.startswith(PREFIX):
+                        title = title[len(PREFIX):]
+                elif item.startswith("DTSTART"):
+                    start = parse_ical_start(item)
+            if title and start:
+                keys.add((title.strip().lower(), start.strftime("%Y%m%d%H%M")))
+            in_event = False
+            block = []
+        elif in_event:
+            block.append(line)
+    return keys
+
+
+def supplemental_vevents(events, existing_keys):
+    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    lines = []
+    added = 0
+    for title, start, end, url in events:
+        key = (title.strip().lower(), start.strftime("%Y%m%d%H%M"))
+        if key in existing_keys:
+            continue
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{deterministic_uid(url, start, title)}",
+            f"DTSTAMP:{now}",
+            f"DTSTART:{start.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+            f"DTEND:{end.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+            f"SUMMARY:{esc(PREFIX + title)}",
+            f"LOCATION:{esc(LOCATION)}",
+            f"URL:{esc(url)}",
+            f"DESCRIPTION:{esc('Source: ' + url)}",
+            "STATUS:CONFIRMED",
+            "END:VEVENT",
+        ]
+        existing_keys.add(key)
+        added += 1
+    return lines, added
+
+
+def merge_native_with_site(native, site_events):
+    existing = native_event_keys(native)
+    additions, added = supplemental_vevents(site_events, existing)
+    if not additions:
+        return native, 0
+    marker = "END:VCALENDAR"
+    idx = native.rfind(marker)
+    if idx < 0:
+        return native, 0
+    before = native[:idx].rstrip("\r\n")
+    merged = before + "\r\n" + "\r\n".join(additions) + "\r\nEND:VCALENDAR\r\n"
+    return merged, added
+
+
 def fallback_events():
     """Fallback if the native feed endpoint is temporarily unavailable."""
     soup = BeautifulSoup(fetch(EVENTS_URL), "html.parser")
@@ -179,10 +271,20 @@ def main():
         native = None
 
     if native:
+        try:
+            site_events = fallback_events()
+        except Exception as exc:
+            print(f"Website supplement parse failed: {exc}")
+            site_events = []
+
+        merged, added = merge_native_with_site(native, site_events)
         with open(OUT, "w", encoding="utf-8", newline="") as f:
-            f.write(native)
-        count = native.count("BEGIN:VEVENT")
-        print(f"Wrote {OUT} from Landmark native iCal with {count} events")
+            f.write(merged)
+        count = merged.count("BEGIN:VEVENT")
+        print(
+            f"Wrote {OUT} with {count} events "
+            f"({added} additional performance(s) supplemented from Landmark website)"
+        )
         return
 
     events = fallback_events()
