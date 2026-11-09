@@ -1,12 +1,19 @@
 name: Build & Publish Landmark ICS v2
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'scrape_to_ics.py'
+      - 'requirements.txt'
+      - '.github/workflows/publish_v2.yml'
   workflow_dispatch: {}
   schedule:
-    - cron: '29 */3 * * *'
+    - cron: '29 */6 * * *'
+    - cron: '13 9 1 * *'
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -29,11 +36,13 @@ jobs:
         run: python scrape_to_ics.py
       - name: Validate calendar
         run: |
+          set -e
           test -s public/calendar.ics
           grep -q '^BEGIN:VCALENDAR' public/calendar.ics
           grep -q '^END:VCALENDAR' public/calendar.ics
-          grep -q '^BEGIN:VEVENT' public/calendar.ics
-          echo "Landmark events: $(grep -c '^BEGIN:VEVENT' public/calendar.ics)"
+          count=$(grep -c '^BEGIN:VEVENT' public/calendar.ics || true)
+          echo "Landmark events: $count"
+          test "$count" -ge 1
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -52,3 +61,17 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  keepalive:
+    if: github.event_name == 'schedule' && github.event.schedule == '13 9 1 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep scheduled workflow active
+        run: |
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > .github/landmark-keepalive.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/landmark-keepalive.txt
+          git commit -m 'chore: keep Landmark calendar workflow active' || exit 0
+          git push
